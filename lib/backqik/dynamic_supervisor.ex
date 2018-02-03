@@ -9,8 +9,8 @@ defmodule Backqik.DynamicSupervisor do
     DynamicSupervisor.init(strategy: :one_for_one)
   end
 
-  def start_child({m, f, a}) do
-    child_spec = %{id: m, start: {m, f, a}, restart: :transient}
+  def start_child({_mod, _fun, arg} = mfa) when is_list(arg) do
+    child_spec = Supervisor.Spec.worker(Backqik.Worker, [mfa], restart: :transient)
     DynamicSupervisor.start_child(__MODULE__, child_spec)
   end
 
