@@ -8,10 +8,11 @@ defmodule Backqik.Worker do
   end
 
   def init(mfa) do
+    Process.flag(:trap_exit, true)
     Process.send(self(), :execute, [])
 
     utc_now = NaiveDateTime.utc_now()
-    {:ok, %{mfa: mfa, retry: 0, created_at: utc_now, next_retry_at: utc_now}}
+    {:ok, %{mfa: mfa, retry: 0, created_at: utc_now, next_retry_at: utc_now, delays: []}}
   end
 
   def handle_info(:execute, %{mfa: {m, f, a}, retry: retry_count} = state) do
@@ -26,19 +27,20 @@ defmodule Backqik.Worker do
     end
   end
 
+  def handle_info({:EXIT, _from, _reason}, state), do: {:noreply, state}
   def terminate(reason, _state), do: IO.inspect(reason, label: "terminate")
 
   defp reschedule_work(%{retry: retry_count} = state) when retry_count >= @max_retries do
     {:stop, :shutdown, state}
   end
 
-  defp reschedule_work(%{retry: count, next_retry_at: timestamp} = state) do
+  defp reschedule_work(%{retry: count, next_retry_at: timestamp, delays: delays} = state) do
     seconds_to_delay = seconds_to_delay(count)
     next_retry_at = NaiveDateTime.add(timestamp, seconds_to_delay, :second)
-    state = %{state | retry: count + 1, next_retry_at: next_retry_at}
+    delays = [seconds_to_delay | delays]
 
     Process.send_after(self(), :execute, seconds_to_delay * 1_000)
-    {:noreply, state}
+    {:noreply, %{state | retry: count + 1, next_retry_at: next_retry_at, delays: delays}}
   end
 
   defp seconds_to_delay(count) do
